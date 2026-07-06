@@ -1,1 +1,1018 @@
 
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>カスタムタイマー</title>
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <style>
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f4f6f9;
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: background-color 0.3s;
+        }
+        h1 { color: #333; margin-bottom: 15px; font-size: 1.4rem; text-align: center; }
+        
+        .workspace {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        @media (min-width: 768px) {
+            .workspace { flex-direction: row; max-width: 1000px; align-items: flex-start; }
+            .stage { flex: 1; }
+            .timeline-area { flex: 1.5; }
+        }
+
+        /* 実行画面 */
+        .stage {
+            width: 100%; background: white; border-radius: 12px; padding: 20px 15px; text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); height: fit-content; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; transition: all 0.3s; position: relative;
+            overflow: hidden; /* スライドイン用 */
+        }
+
+        /* 実行中追加パーツ（初期状態は非表示） */
+        .fullscreen-header {
+            display: none;
+            position: absolute;
+            top: 15px;
+            left: 0;
+            width: 100%;
+            padding: 0 20px;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+            z-index: 10001;
+        }
+        .current-clock {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #555;
+            background: rgba(255,255,255,0.8);
+            padding: 4px 12px;
+            border-radius: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .btn-peek {
+            background: #4b5563;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stage.fullscreen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; border-radius: 0; box-shadow: none; padding: 60px 20px 20px 20px; box-sizing: border-box;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }
+        .stage.fullscreen .fullscreen-header {
+            display: flex; /* フルスクリーン時のみ表示 */
+        }
+        
+        /* 横向き画面（Landscape）への最適化調整 */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .stage.fullscreen { padding: 30px 10px 5px 10px; justify-content: center; }
+            
+            /* タイマーの文字自体を少し上に持ち上げる */
+            .stage.fullscreen .time-display { 
+                font-size: 32vh !important; 
+                margin-top: 0px;
+                margin-bottom: 0px; 
+            }
+            /* タスク名 */
+            .stage.fullscreen .current-task { 
+                font-size: 4.5vh !important; 
+                margin-bottom: 2px; 
+            }
+            
+            /* ボタン全体のコンテナを下部にしっかり固定 */
+            .stage.fullscreen .btn-group { 
+                max-width: 500px; 
+                flex-direction: row !important; 
+                justify-content: center; 
+                align-items: center; 
+                gap: 8px; 
+                margin-top: 0px !important;
+                margin-bottom: 2px;
+            }
+            
+            /* ボタン自体のサイズ調整 */
+            .stage.fullscreen .btn { 
+                padding: 6px 14px !important; 
+                font-size: 0.9rem !important; 
+                width: auto !important; 
+                min-width: 120px; 
+            }
+            
+            /* サブボタン（リセットなど） */
+            .stage.fullscreen .btn-row { 
+                width: auto !important; 
+                gap: 8px; 
+            }
+            
+            .fullscreen-header { top: 6px; padding: 0 15px; }
+            .current-clock, .btn-peek { font-size: 0.75rem; padding: 2px 8px; }
+            .peek-panel { top: 35px !important; height: calc(100% - 35px) !important; padding: 10px !important; }
+            .peek-title { margin-bottom: 6px !important; font-size: 0.85rem !important; }
+            .peek-item { font-size: 0.75rem !important; padding: 4px 8px !important; }
+        }
+
+        /* 縦画面フルスクリーン時の余白を詰める調整 */
+        .stage.fullscreen .time-display { font-size: 22vw; margin-bottom: 5px; line-height: 1; }
+        .stage.fullscreen .current-task { font-size: 6vw; margin-bottom: 10px; }
+        .stage.fullscreen .btn-group { width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 10px; margin-top: 5px; }
+
+        .current-task { font-size: 1.1rem; font-weight: bold; color: #555; margin-bottom: 10px; word-break: break-all; }
+        .time-display { font-size: 3.5rem; font-weight: bold; color: #222; font-family: monospace; margin-bottom: 15px; }
+        
+        .btn-group { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+        .btn-row { display: flex; gap: 8px; width: 100%; }
+        
+        .btn {
+            padding: 12px 20px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 8px;
+            cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.1); -webkit-tap-highlight-color: transparent;
+            text-align: center;
+        }
+        .btn-start { background: #28a745; color: white; }
+        .btn-stop { background: #dc3545; color: white; }
+        .btn-resume { background: #ff9800; color: white; }
+        .btn-reset { background: #6c757d; color: white; }
+
+        /* 外側タップ検出用の透明なレイヤー */
+        .peek-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10004;
+            background: transparent;
+        }
+        .peek-overlay.show {
+            display: block;
+        }
+
+        /* 右からスライドインするタスク確認パネル */
+        .peek-panel {
+            position: absolute;
+            top: 55px;
+            right: 0;
+            width: 280px;
+            max-width: 85%;
+            height: calc(100% - 55px);
+            background: rgba(255, 255, 255, 0.95);
+            border-left: 1px solid #e2e8f0;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.1);
+            padding: 15px;
+            box-sizing: border-box;
+            z-index: 10005;
+            transform: translateX(105%);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            flex-direction: column;
+            text-align: left;
+            border-top-left-radius: 12px;
+        }
+        .peek-panel.open {
+            transform: translateX(0);
+        }
+        .peek-title {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #cbd5e1;
+            padding-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .btn-peek-close {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 0 5px;
+        }
+        .peek-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .peek-item {
+            font-size: 0.85rem;
+            padding: 6px 10px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* 編集画面 */
+        .timeline-area { width: 100%; background: white; border-radius: 12px; padding: 15px 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .section-title { font-weight: bold; color: #444; margin-bottom: 10px; border-left: 5px solid #007bff; padding-left: 8px; font-size: 0.95rem; }
+
+        .save-panel { background: #eef2f7; border: 1px solid #cbd5e1; padding: 10px; border-radius: 8px; margin-bottom: 15px; }
+        .save-input-group { display: flex; gap: 6px; margin-bottom: 8px; }
+        .saved-list { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; max-height: 120px; overflow-y: auto; background: white; padding: 5px; border: 1px solid #ddd; border-radius: 4px; }
+        .saved-item { display: flex; justify-content: space-between; align-items: center; padding: 5px 6px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.8rem; }
+        .saved-item-btns { display: flex; gap: 4px; }
+
+        /* 共有パネル */
+        .share-panel { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px; border-radius: 8px; margin-bottom: 15px; }
+        .qr-container { display: flex; justify-content: center; align-items: center; margin-top: 10px; background: white; padding: 10px; border-radius: 6px; border: 1px solid #ddd; min-height: 170px; }
+        .qr-container img { max-width: 150px; max-height: 150px; object-fit: contain; }
+        
+        #reader { width: 100%; max-width: 350px; margin: 10px auto; border-radius: 8px; overflow: hidden; display: none; border: 2px solid #059669; }
+
+        .task-creator { background: #f8f9fa; border: 1px solid #e2e8f0; padding: 8px; border-radius: 8px; margin-bottom: 15px; display: flex; gap: 6px; align-items: center; }
+        .sortable-list { display: flex; flex-direction: column; gap: 6px; min-height: 50px; background: #fafafa; border: 2px dashed #ccc; border-radius: 8px; padding: 8px; box-sizing: border-box; }
+        .block, .loop-block { touch-action: none; }
+
+        /* タスクブロック */
+        .block { display: flex; align-items: center; gap: 4px; background: #fff; border: 1px solid #ddd; border-left: 5px solid #4a5568; padding: 6px 4px; border-radius: 4px; cursor: grab; user-select: none; font-size: 0.8rem; }
+        .block.work { border-left-color: #007bff; }
+        .block.rest { border-left-color: #17a2b8; }
+        .block.long-rest { border-left-color: #6f42c1; }
+        .task-select { padding: 4px 2px; font-size: 0.8rem; max-width: 85px; border-radius: 3px; border: 1px solid #ccc; }
+
+        .time-input-group { display: flex; align-items: center; gap: 1px; white-space: nowrap; font-size: 0.75rem; color: #555; }
+        .time-input-group input[type="number"] { width: 38px; padding: 4px 2px; text-align: center; font-size: 0.8rem; border-radius: 3px; border: 1px solid #ccc; }
+
+        .action-group { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+        .btn-move { background: #edf2f7; border: 1px solid #cbd5e1; color: #4a5568; cursor: pointer; padding: 4px 5px; font-size: 0.7rem; border-radius: 3px; font-weight: bold; -webkit-tap-highlight-color: transparent; }
+        .btn-del { background: none; border: none; color: #bbb; cursor: pointer; font-weight: bold; padding: 4px 5px; font-size: 0.95rem; }
+        .btn-del:hover { color: #dc3545; }
+
+        /* ループブロック */
+        .loop-block { background: #fff8e1; border: 1px solid #ffc107; border-radius: 6px; padding: 6px; cursor: grab; }
+        .loop-block .loop-block { background: #fffdf0; margin: 4px 0; padding: 5px; }
+        .loop-header { display: flex; align-items: center; gap: 4px; font-weight: bold; color: #b78103; margin-bottom: 6px; font-size: 0.8rem; }
+        .loop-header input[type="number"] { width: 38px; padding: 3px 2px; text-align: center; font-size: 0.8rem; border: 1px solid #ccc; border-radius: 3px; }
+        .loop-inf-label { font-size: 0.75rem; display: flex; align-items: center; gap: 1px; color: #9a3412; cursor: pointer; user-select: none;}
+
+        .dragging { opacity: 0.4; background: #e2e8f0 !important; }
+        .menu-buttons { margin-bottom: 12px; display: flex; gap: 6px; }
+        .btn-add { background: #e2e8f0; border: 1px solid #cbd5e1; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; flex: 1; text-align: center; font-weight: bold;}
+        .btn-save { background: #3182ce; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 0.8rem;}
+        .btn-sm-load { background: #28a745; color: white; border: none; padding: 3px 6px; border-radius: 3px; cursor: pointer; font-size: 0.75rem;}
+        .btn-sm-edit { background: #e2e8f0; color: #333; border: 1px solid #cbd5e1; padding: 3px 6px; border-radius: 3px; cursor: pointer; font-size: 0.75rem;}
+        .btn-sm-del { background: #dc3545; color: white; border: none; padding: 3px 6px; border-radius: 3px; cursor: pointer; font-size: 0.75rem;}
+        .btn-create { background: #4a5568; color: white; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;}
+        .btn-create:hover { background: #2d3748; }
+        .btn-loop-add { background: #fff; border: 1px solid #ffc107; padding: 4px 6px; border-radius: 3px; cursor: pointer; font-size: 0.75rem; color: #b78103; font-weight: bold;}
+        
+        .btn-share { background: #4b5563; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold;}
+        .btn-share-load { background: #059669; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold;}
+        .btn-camera { background: #0284c7; color: white; border: none; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold;}
+
+        /* トースト通知 */
+        .toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 0, 0, 0.85); color: white; padding: 10px 20px; border-radius: 30px;
+            font-size: 0.85rem; font-weight: bold; z-index: 10000; transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28), opacity 0.3s;
+            opacity: 0; white-space: nowrap; pointer-events: none; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+    </style>
+</head>
+<body>
+
+<h1 id="title-text">カスタムタイマー</h1>
+
+<div id="toast" class="toast"></div>
+
+<div id="peek-overlay" class="peek-overlay" onclick="togglePeekPanel()"></div>
+
+<div class="workspace" id="workspace">
+    <div class="stage" id="stage-bg">
+        <div class="fullscreen-header">
+            <div id="current-clock" class="current-clock">00:00</div>
+            <button id="peek-toggle-btn" class="btn-peek" onclick="togglePeekPanel()">📋 予定を確認</button>
+        </div>
+
+        <div id="peek-panel" class="peek-panel">
+            <div class="peek-title">
+                <span>今後のタスク（最大5件）</span>
+                <button class="btn-peek-close" onclick="togglePeekPanel()">✕</button>
+            </div>
+            <ul id="peek-task-list" class="peek-list"></ul>
+        </div>
+
+        <div id="current-task" class="current-task">スケジュールを選んでスタート！</div>
+        <div id="time-display" class="time-display">00:00</div>
+        
+        <div id="control-panel" class="btn-group">
+            <button id="main-btn" class="btn btn-start" onclick="toggleTimer()">スタート</button>
+            <div id="sub-btns" class="btn-row" style="display: none;">
+                <button id="reset-btn" class="btn btn-reset" onclick="resetAndExit()">🔄 戻る</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="timeline-area" id="timeline-area">
+        
+        <div class="section-title">スケジュールの名前をつけて保存</div>
+        <div class="save-panel">
+            <div class="save-input-group">
+                <input type="text" id="save-title" placeholder="例: ループテスト..." style="flex:1; font-size:0.8rem; padding:4px; border:1px solid #ccc; border-radius:4px;">
+                <button class="btn-save" onclick="saveTimeline()">💾 保存</button>
+            </div>
+            <div style="font-size: 0.75rem; color:#666; font-weight:bold;">【保存されたスケジュール一覧】</div>
+            <div id="saved-list" class="saved-list">
+                <div style="color:#aaa; font-size:0.75rem; padding:5px; text-align:center;">データはありません</div>
+            </div>
+        </div>
+
+        <div class="section-title">共有用データ</div>
+        <div class="share-panel">
+            <textarea id="share-text" placeholder="ここに生成された短いコードが表示されます。または他端末のコードをここに貼り付けます。" style="width:100%; height:45px; font-size:0.75rem; padding:4px; border:1px solid #ccc; border-radius:4px; font-family:monospace; resize:none;"></textarea>
+            <div style="display:flex; gap:4px; margin-top:6px; flex-wrap: wrap;">
+                <button class="btn-share" onclick="generateShortCode()">📤 現在の構成をデータ化</button>
+                <button class="btn-share-load" onclick="loadShortCode()">📥 文字列から読込</button>
+                <button class="btn-camera" onclick="toggleCameraScanner()">📷 カメラでQRを読み取る</button>
+            </div>
+            <div id="reader"></div>
+            <div id="qrcode" class="qr-container" style="display: none;"></div>
+        </div>
+
+        <div class="section-title">新しいタスク名の追加</div>
+        <div class="task-creator">
+            <input type="text" id="new-task-name" placeholder="例: 読書、瞑想..." style="flex:1; font-size:0.8rem; padding:4px; border:1px solid #ccc; border-radius:4px;">
+            <button class="btn-create" onclick="addNewTaskOption()">追加</button>
+        </div>
+
+        <div class="section-title">タイムライン</div>
+        <div class="menu-buttons">
+            <button class="btn-add" onclick="addTaskBlock(document.getElementById('timeline'))">＋ タスクを追加</button>
+            <button class="btn-add" onclick="addLoopBlock(document.getElementById('timeline'))">🔁 ループ枠を追加</button>
+        </div>
+
+        <div id="timeline" class="sortable-list">
+            <div class="block work" draggable="true">
+                <select class="task-select" onchange="updateBlockStyle(this)">
+                    <option value="work">📝 勉強</option>
+                    <option value="rest">☕ 休憩</option>
+                    <option value="long-rest">💤 大休憩</option>
+                </select>
+                <div class="time-input-group">
+                    <input type="number" class="min" value="25" min="0">分
+                    <input type="number" class="sec" value="0" min="0" max="59">秒
+                </div>
+                <div class="action-group">
+                    <button class="btn-move" onclick="moveBlock(this, -1)">▲</button>
+                    <button class="btn-move" onclick="moveBlock(this, 1)">▼</button>
+                    <button class="btn-del" onclick="this.closest('.block').remove()">✕</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let timerId = null, isRunning = false, queue = [], currentIdx = 0, timeLeft = 0;
+    let customTaskOptions = [], savedSchedules = {}, audioCtx = null, html5QrcodeScanner = null;
+    let isInfiniteMode = false, isPaused = false;
+    let silentAudio = null;
+    let expectedEndTime = 0; 
+    let clockIntervalId = null;
+
+    function showToast(message) {
+        const toast = document.getElementById('toast'); toast.textContent = message; toast.classList.add('show');
+        setTimeout(() => { toast.classList.remove('show'); }, 2000);
+    }
+
+    function playBeep(freq, dur) {
+        try {
+            if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+            if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+            const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination); osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime); osc.start(); osc.stop(audioCtx.currentTime + dur);
+        } catch(e) { console.log("Beep error:", e); }
+    }
+
+    function startSilentAudio() {
+        try {
+            if (!silentAudio) {
+                silentAudio = new Audio();
+                silentAudio.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAADAA==";
+                silentAudio.loop = true;
+                silentAudio.setAttribute('playsinline', '');
+            }
+            silentAudio.play().catch(e => console.log("Audio play deferred or blocked:", e));
+        } catch(e) { console.log("Silent audio init error:", e); }
+    }
+
+    function stopSilentAudio() { if (silentAudio) { try { silentAudio.pause(); } catch(e){} } }
+
+    function updateNotificationCenter(taskLabel, timeStr) {
+        try {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: `⏱️ ${timeStr} - ${taskLabel}`,
+                    artist: 'カスタムタイマー稼働中',
+                    album: isInfiniteMode ? '🔂 無限ループ進行中' : 'スケジュール実行中'
+                });
+                navigator.mediaSession.playbackState = isPaused ? "paused" : "playing";
+            }
+        } catch (e) {
+            console.log("MediaSession sync error ignored:", e);
+        }
+    }
+
+    function sendPushNotification(title, body) {
+        try {
+            if (Notification.permission === "granted") {
+                new Notification(title, { body: body, silent: true });
+            }
+        } catch(e) {}
+    }
+
+    function clearNotificationCenter() {
+        try {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = null;
+                navigator.mediaSession.playbackState = "none";
+            }
+        } catch(e) {}
+    }
+
+    function updateClock() {
+        const now = new Date();
+        const hrs = String(now.getHours()).padStart(2, '0');
+        const mins = String(now.getMinutes()).padStart(2, '0');
+        document.getElementById('current-clock').textContent = `${hrs}:${mins}`;
+    }
+
+    function togglePeekPanel() {
+        const panel = document.getElementById('peek-panel');
+        const overlay = document.getElementById('peek-overlay');
+        const isOpen = panel.classList.toggle('open');
+        
+        if (overlay) {
+            overlay.classList.toggle('show', isOpen);
+        }
+        
+        if (isOpen) {
+            updatePeekList();
+        }
+    }
+
+    function updatePeekList() {
+        const listContainer = document.getElementById('peek-task-list');
+        listContainer.innerHTML = '';
+        
+        let peekCount = 0;
+        let idx = currentIdx + 1;
+        
+        while (peekCount < 5) {
+            let targetIdx = idx;
+            if (isInfiniteMode && queue.length > 0) {
+                targetIdx = idx % queue.length;
+            }
+            
+            if (targetIdx >= queue.length || queue.length === 0) {
+                if (peekCount === 0) {
+                    listContainer.innerHTML = '<li class="peek-item" style="color:#aaa;">次に控えているタスクはありません</li>';
+                }
+                break;
+            }
+            
+            const task = queue[targetIdx];
+            const m = Math.floor(task.totalSec / 60);
+            const s = task.totalSec % 60;
+            const timeStr = `${m > 0 ? m + '分' : ''}${s}秒`;
+            
+            const li = document.createElement('li');
+            li.className = 'peek-item';
+            li.innerHTML = `<span>${peekCount + 1}. ${getTaskLabel(task.type)}</span><span style="font-weight:bold; color:#666;">${timeStr}</span>`;
+            listContainer.appendChild(li);
+            
+            idx++;
+            peekCount++;
+        }
+    }
+
+    window.onload = function() { 
+        loadFromStorage(); 
+        setupMediaSessionActions(); 
+        if ("Notification" in window && Notification.permission === "default") {
+            try { Notification.requestPermission(); } catch(e){}
+        }
+    };
+
+    function setupMediaSessionActions() {
+        try {
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.setActionHandler('play', () => { if (isPaused) toggleTimer(); });
+                navigator.mediaSession.setActionHandler('pause', () => { if (!isPaused && isRunning) toggleTimer(); });
+                navigator.mediaSession.setActionHandler('stop', () => { resetAndExit(); });
+            }
+        } catch(e) {}
+    }
+
+    function addNewTaskOption(name = null) {
+        if (!name) {
+            const input = document.getElementById('new-task-name'); name = input.value.trim();
+            if (!name) return;
+            if (customTaskOptions.includes(name) || ['work','rest','long-rest'].includes(name)) { showToast('既に存在します。'); return; }
+            customTaskOptions.push(name); input.value = '';
+        }
+        document.querySelectorAll('.task-select').forEach(select => {
+            if ([...select.options].some(o => o.value === 'custom-' + name)) return;
+            const opt = document.createElement('option'); opt.value = 'custom-' + name; opt.textContent = '✨ ' + name; select.appendChild(opt);
+        });
+    }
+
+    function updateBlockStyle(select) {
+        const block = select.closest('.block'); block.className = 'block';
+        if (['work', 'rest', 'long-rest'].includes(select.value)) { block.classList.add(select.value); }
+    }
+
+    function addTaskBlock(container, defaultData = null) {
+        const div = document.createElement('div'); div.className = 'block work'; div.setAttribute('draggable', 'true');
+        let optionsHtml = `<option value="work">📝 勉強</option><option value="rest">☕ 休憩</option><option value="long-rest">💤 大休憩</option>`;
+        customTaskOptions.forEach(opt => { optionsHtml += `<option value="custom-${opt}">✨ ${opt}</option>`; });
+        div.innerHTML = `
+            <select class="task-select" onchange="updateBlockStyle(this)">${optionsHtml}</select>
+            <div class="time-input-group"><input type="number" class="min" value="10" min="0">分<input type="number" class="sec" value="0" min="0" max="59">秒</div>
+            <div class="action-group">
+                <button class="btn-move" onclick="moveBlock(this, -1)">▲</button><button class="btn-move" onclick="moveBlock(this, 1)">▼</button><button class="btn-del" onclick="this.closest('.block').remove()">✕</button>
+            </div>`;
+        if (defaultData) {
+            const select = div.querySelector('select'); select.value = defaultData.type;
+            div.querySelector('.min').value = defaultData.min; div.querySelector('.sec').value = defaultData.sec; updateBlockStyle(select);
+        }
+        setupDragEvents(div); container.appendChild(div);
+    }
+
+    function toggleInfinite(chk) {
+        const numInput = chk.closest('.loop-header').querySelector('.loop-count');
+        numInput.disabled = chk.checked;
+        if(chk.checked) numInput.style.backgroundColor = '#e2e8f0';
+        else numInput.style.backgroundColor = '#fff';
+    }
+
+    function addLoopBlock(container, defaultData = null) {
+        const div = document.createElement('div'); div.className = 'loop-block'; div.setAttribute('draggable', 'true');
+        const loopCount = defaultData ? defaultData.loopCount : 2;
+        const isInf = defaultData ? (defaultData.isInfinite === true || defaultData.loopCount === 0) : false;
+        
+        div.innerHTML = `
+            <div class="loop-header">
+                🔁 ループ：<input type="number" class="loop-count" value="${loopCount}" min="1" ${isInf ? 'disabled style="background-color:#e2e8f0;"' : ''}>回
+                <label class="loop-inf-label"><input type="checkbox" class="loop-inf" onchange="toggleInfinite(this)" ${isInf ? 'checked' : ''}>無限</label>
+                <div class="action-group">
+                    <button class="btn-move" onclick="moveBlock(this, -1)">▲</button><button class="btn-move" onclick="moveBlock(this, 1)">▼</button><button class="btn-del" onclick="this.closest('.loop-block').remove()">✕</button>
+                </div>
+            </div>
+            <div class="sortable-list inner-timeline"></div>
+            <div style="margin-top: 6px; display:flex; gap:4px;">
+                <button class="btn-add" style="font-size:0.7rem; padding:3px 6px;" onclick="addTaskBlock(this.parentElement.previousElementSibling)">＋タスク</button>
+                <button class="btn-loop-add" onclick="addLoopBlock(this.parentElement.previousElementSibling)">＋内側ループ</button>
+            </div>`;
+        const innerContainer = div.querySelector('.inner-timeline'); setupContainerEvents(innerContainer);
+        if (defaultData && defaultData.tasks) {
+            defaultData.tasks.forEach(childData => {
+                if (childData.blockType === 'single') { addTaskBlock(innerContainer, childData); }
+                else if (childData.blockType === 'loop') { addLoopBlock(innerContainer, childData); }
+            });
+        }
+        setupDragEvents(div); container.appendChild(div);
+    }
+
+    function moveBlock(button, direction) {
+        const block = button.closest('.block') || button.closest('.loop-block'); if (!block) return;
+        const parentContainer = block.parentElement;
+        if (direction === -1) {
+            const prev = block.previousElementSibling;
+            if (prev) {
+                if (prev.classList.contains('loop-block')) { prev.querySelector('.inner-timeline').appendChild(block); }
+                else { parentContainer.insertBefore(block, prev); }
+            } else {
+                const parentLoop = parentContainer.closest('.loop-block');
+                if (parentLoop && parentLoop.parentElement) { parentLoop.parentElement.insertBefore(block, parentLoop); }
+            }
+        } else if (direction === 1) {
+            const next = block.nextElementSibling;
+            if (next) {
+                if (next.classList.contains('loop-block')) { const inner = next.querySelector('.inner-timeline'); inner.insertBefore(block, inner.firstChild); }
+                else { parentContainer.insertBefore(block, next.nextElementSibling); }
+            } else {
+                const parentLoop = parentContainer.closest('.loop-block');
+                if (parentLoop && parentLoop.parentElement) { parentLoop.parentElement.insertBefore(block, parentLoop.nextElementSibling); }
+            }
+        }
+    }
+
+    function serializeContainer(container) {
+        const data = [], nodes = container.children;
+        for (let node of nodes) {
+            if (node.classList.contains('block')) {
+                data.push({ blockType: 'single', type: node.querySelector('select').value, min: node.querySelector('.min').value, sec: node.querySelector('.sec').value });
+            } else if (node.classList.contains('loop-block')) {
+                const isInf = node.querySelector('.loop-inf').checked;
+                data.push({ 
+                    blockType: 'loop', 
+                    loopCount: isInf ? 0 : node.querySelector('.loop-count').value, 
+                    isInfinite: isInf,
+                    tasks: serializeContainer(node.querySelector('.inner-timeline')) 
+                });
+            }
+        }
+        return data;
+    }
+
+    function generateShortCode() {
+        const timelineData = serializeContainer(document.getElementById('timeline'));
+        if (timelineData.length === 0) { showToast('タイムラインが空です。'); return; }
+        
+        function compress(list) {
+            let str = '';
+            list.forEach(item => {
+                if (item.blockType === 'single') {
+                    let tc = 'W';
+                    if (item.type === 'rest') tc = 'R';
+                    else if (item.type === 'long-rest') tc = 'E';
+                    else if (item.type.startsWith('custom-')) tc = 'C' + item.type.replace('custom-', '') + '_';
+                    str += `S${tc}${item.min}-${item.sec}`;
+                } else if (item.blockType === 'loop') {
+                    str += `L${item.isInfinite ? 0 : item.loopCount}`;
+                    str += compress(item.tasks);
+                    str += 'X';
+                }
+            });
+            return str;
+        }
+
+        const titleName = document.getElementById('save-title').value.trim() || '共有スケジュール';
+        let customHeader = `TITLE:${titleName}##`;
+        if (customTaskOptions.length > 0) { customHeader += 'DEF:' + customTaskOptions.join('/') + '@'; } else { customHeader += '@'; }
+        
+        const finalCode = customHeader + compress(timelineData);
+        const textArea = document.getElementById('share-text'); textArea.value = finalCode;
+        
+        const qrDiv = document.getElementById('qrcode'); qrDiv.innerHTML = ''; qrDiv.style.display = 'flex';
+        const qrImg = document.createElement('img');
+        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(finalCode)}`;
+        qrImg.alt = "QR Code";
+        qrImg.onerror = function() { showToast('QR画像の生成に失敗しました。'); };
+        qrImg.onload = function() { textArea.select(); showToast(`「${titleName}」のQRコードを出力しました`); };
+        qrDiv.appendChild(qrImg);
+    }
+
+    function decodeShortCode(code) {
+        let workingCode = code.trim(); if (!workingCode) return;
+        let scheduleTitle = "共有スケジュール"; 
+
+        if (workingCode.startsWith('TITLE:')) {
+            const titleParts = workingCode.split('##');
+            const extractTitle = titleParts[0].replace('TITLE:', '').trim();
+            if (extractTitle) scheduleTitle = extractTitle;
+            workingCode = titleParts.slice(1).join('##') || '';
+        }
+        
+        if (workingCode.startsWith('DEF:')) {
+            const parts = workingCode.split('@');
+            parts[0].replace('DEF:', '').split('/').forEach(name => {
+                if (name && !customTaskOptions.includes(name)) { customTaskOptions.push(name); addNewTaskOption(name); }
+            });
+            workingCode = parts.slice(1).join('@');
+        } else if (workingCode.startsWith('@')) { workingCode = workingCode.substring(1); }
+
+        const tokens = workingCode.match(/L\d+|S(?:W|R|E|C[^_]+_)\d+-\d+|X/g);
+        if (!tokens) throw new Error("Format error");
+
+        let tokenIdx = 0;
+        function parseTokens() {
+            let list = [];
+            while (tokenIdx < tokens.length) {
+                let token = tokens[tokenIdx];
+                if (token === 'X') { tokenIdx++; return list; }
+                if (token.startsWith('L')) {
+                    let count = parseInt(token.substring(1)); tokenIdx++;
+                    let innerTasks = parseTokens();
+                    list.push({ blockType: 'loop', loopCount: count === 0 ? 2 : count, isInfinite: count === 0, tasks: innerTasks });
+                } else if (token.startsWith('S')) {
+                    tokenIdx++;
+                    let content = token.substring(1), fullType = 'work', timePart = '';
+                    if (content.startsWith('W')) { fullType = 'work'; timePart = content.substring(1); }
+                    else if (content.startsWith('R')) { fullType = 'rest'; timePart = content.substring(1); }
+                    else if (content.startsWith('E')) { fullType = 'long-rest'; timePart = content.substring(1); }
+                    else if (content.startsWith('C')) {
+                        let underScoreIdx = content.indexOf('_');
+                        fullType = 'custom-' + content.substring(1, underScoreIdx);
+                        timePart = content.substring(underScoreIdx + 1);
+                    }
+                    let times = timePart.split('-'), min = parseInt(times[0]) || 0, sec = parseInt(times[1]) || 0;
+                    list.push({ blockType: 'single', type: fullType, min: min, sec: sec });
+                }
+            }
+            return list;
+        }
+
+        const parsedTimeline = parseTokens(); if (parsedTimeline.length === 0) throw new Error("Empty data");
+        const timeline = document.getElementById('timeline'); timeline.innerHTML = '';
+        parsedTimeline.forEach(childData => {
+            if (childData.blockType === 'single') { addTaskBlock(timeline, childData); }
+            else if (childData.blockType === 'loop') { addLoopBlock(timeline, childData); }
+        });
+
+        document.getElementById('save-title').value = scheduleTitle;
+        savedSchedules[scheduleTitle] = { customOptions: customTaskOptions, timeline: parsedTimeline };
+        localStorage.setItem('nested_loop_timer_v1', JSON.stringify(savedSchedules)); renderSavedList();
+        showToast(`「${scheduleTitle}」を復元＆自動保存しました！`);
+    }
+
+    function loadShortCode() { try { decodeShortCode(document.getElementById('share-text').value); } catch(e) { showToast('データの解析に失敗しました。'); } }
+
+    function toggleCameraScanner() {
+        const readerDiv = document.getElementById('reader');
+        if (readerDiv.style.display === 'block') { stopCameraScanner(); return; }
+        readerDiv.style.display = 'block'; html5QrcodeScanner = new Html5Qrcode("reader");
+        html5QrcodeScanner.start(
+            { facingMode: "environment" }, { fps: 10, qrbox: { width: 220, height: 220 } },
+            (decodedText) => { 
+                document.getElementById('share-text').value = decodedText;
+                try { decodeShortCode(decodedText); stopCameraScanner(); } catch(e) { showToast('データ形式が正しくありません。'); }
+            }, () => {} 
+        ).catch(() => { showToast('カメラ起動に失敗。'); readerDiv.style.display = 'none'; });
+    }
+
+    function stopCameraScanner() {
+        if (html5QrcodeScanner) { html5QrcodeScanner.stop().then(() => { document.getElementById('reader').style.display = 'none'; html5QrcodeScanner = null; }); }
+        else { document.getElementById('reader').style.display = 'none'; }
+    }
+
+    let activeTouchElement = null;
+    function setupDragEvents(el) {
+        el.addEventListener('dragstart', (e) => { e.stopPropagation(); el.classList.add('dragging'); });
+        el.addEventListener('dragend', (e) => { e.stopPropagation(); el.classList.remove('dragging'); });
+        el.addEventListener('touchstart', (e) => {
+            if (['INPUT', 'SELECT', 'BUTTON', 'TEXTAREA'].includes(e.target.tagName)) return;
+            e.stopPropagation(); activeTouchElement = el; el.classList.add('dragging');
+        }, { passive: true });
+        el.addEventListener('touchend', (e) => { if (activeTouchElement) { e.stopPropagation(); activeTouchElement.classList.remove('dragging'); activeTouchElement = null; } });
+    }
+
+    function setupContainerEvents(container) {
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault(); e.stopPropagation(); const draggingEl = document.querySelector('.dragging'); if (!draggingEl || draggingEl.contains(container)) return;
+            const afterElement = getDragAfterElement(container, e.clientY); if (afterElement == null) { container.appendChild(draggingEl); } else { container.insertBefore(draggingEl, afterElement); }
+        });
+        container.addEventListener('touchmove', (e) => {
+            const draggingEl = document.querySelector('.dragging'); if (!draggingEl || draggingEl.contains(container)) return;
+            const touch = e.touches[0]; const targetList = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.sortable-list');
+            if (targetList === container) { e.preventDefault(); const afterElement = getDragAfterElement(container, touch.clientY); if (afterElement == null) { container.appendChild(draggingEl); } else { container.insertBefore(draggingEl, afterElement); } }
+        }, { passive: false });
+    }
+
+    function getDragAfterElement(container, y) {
+        const draggableElements = [...container.querySelectorAll(':scope > [draggable="true"]:not(.dragging), :scope > .loop-block:not(.dragging)')];
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect(), offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) { return { offset: offset, element: child }; } else { return closest; }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
+
+    document.querySelectorAll('[draggable="true"]').forEach(setupDragEvents); setupContainerEvents(document.getElementById('timeline'));
+
+    function saveTimeline() {
+        const titleInput = document.getElementById('save-title'), title = titleInput.value.trim(); if (!title) { showToast('名前を入力してください。'); return; }
+        savedSchedules[title] = { customOptions: customTaskOptions, timeline: serializeContainer(document.getElementById('timeline')) };
+        localStorage.setItem('nested_loop_timer_v1', JSON.stringify(savedSchedules)); renderSavedList(); showToast('保存しました！');
+    }
+
+    function renderSavedList() {
+        const listDiv = document.getElementById('saved-list'); listDiv.innerHTML = '';
+        const keys = Object.keys(savedSchedules); if (keys.length === 0) { listDiv.innerHTML = '<div style="color:#aaa; font-size:0.75rem; padding:5px; text-align:center;">データはありません</div>'; return; }
+        keys.forEach(k => {
+            const item = document.createElement('div'); item.className = 'saved-item';
+            item.innerHTML = `<span style="font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:120px;">${k}</span>
+                <div class="saved-item-btns">
+                    <button class="btn-sm-load" onclick="loadSchedule('${k}')">読込</button>
+                    <button class="btn-sm-edit" onclick="renameSchedule('${k}')">名変</button>
+                    <button class="btn-sm-del" onclick="deleteSchedule('${k}')">削除</button>
+                </div>`;
+            listDiv.appendChild(item);
+        });
+    }
+
+    function loadSchedule(key) {
+        const data = savedSchedules[key]; if (!data) return;
+        if (data.customOptions) { data.customOptions.forEach(opt => { if(!customTaskOptions.includes(opt)){ customTaskOptions.push(opt); addNewTaskOption(opt); } }); }
+        const timeline = document.getElementById('timeline'); timeline.innerHTML = '';
+        data.timeline.forEach(childData => {
+            if (childData.blockType === 'single') { addTaskBlock(timeline, childData); }
+            else if (childData.blockType === 'loop') { addLoopBlock(timeline, childData); }
+        });
+        document.getElementById('save-title').value = key; showToast(`「${key}」を読み込みました`);
+    }
+
+    function renameSchedule(oldKey) {
+        const newKey = prompt('新しい名前を入力してください', oldKey); if (!newKey) return;
+        const trimmed = newKey.trim(); if (!trimmed || trimmed === oldKey) return;
+        if (savedSchedules[trimmed]) { if (!confirm('既に同じ名前が存在します。上書きしますか？')) return; }
+        savedSchedules[trimmed] = savedSchedules[oldKey]; delete savedSchedules[oldKey];
+        localStorage.setItem('nested_loop_timer_v1', JSON.stringify(savedSchedules)); renderSavedList(); showToast('名前を変更しました');
+    }
+
+    function deleteSchedule(key) {
+        if (!confirm(`「${key}」を削除しますか？`)) return; delete savedSchedules[key];
+        localStorage.setItem('nested_loop_timer_v1', JSON.stringify(savedSchedules)); renderSavedList(); showToast('削除しました');
+    }
+
+    function loadFromStorage() {
+        try {
+            const raw = localStorage.getItem('nested_loop_timer_v1'); if (raw) {
+                savedSchedules = JSON.parse(raw); Object.values(savedSchedules).forEach(sc => {
+                    if (sc.customOptions) sc.customOptions.forEach(opt => { if(!customTaskOptions.includes(opt)){ customTaskOptions.push(opt); addNewTaskOption(opt); } });
+                }); renderSavedList();
+            }
+        } catch(e) { console.log(e); }
+    }
+
+    function flattenTimeline(list) {
+        let result = [];
+        list.forEach(item => {
+            if (item.blockType === 'single') {
+                const totalSec = (parseInt(item.min) * 60) + parseInt(item.sec);
+                if (totalSec > 0) { result.push({ type: item.type, totalSec: totalSec }); }
+            } else if (item.blockType === 'loop') {
+                const innerFlattened = flattenTimeline(item.tasks); if (innerFlattened.length === 0) return;
+                if (item.isInfinite) {
+                    result.push({ blockType: 'infinite_marker', loopTasks: innerFlattened });
+                } else {
+                    const loops = parseInt(item.loopCount) || 1;
+                    for (let i = 0; i < loops; i++) { result = result.concat(JSON.parse(JSON.stringify(innerFlattened))); }
+                }
+            }
+        });
+        return result;
+    }
+
+    function getTaskLabel(type) {
+        if (type === 'work') return '📝 勉強'; if (type === 'rest') return '☕ 休憩'; if (type === 'long-rest') return '💤 大休憩';
+        if (type.startsWith('custom-')) return '✨ ' + type.replace('custom-', ''); return 'タスク';
+    }
+
+    function toggleTimer() {
+        const mainBtn = document.getElementById('main-btn');
+        if (isRunning) { 
+            isPaused = !isPaused; 
+            if (isPaused) { 
+                mainBtn.textContent = '再開'; 
+                mainBtn.className = 'btn btn-resume'; 
+                stopSilentAudio();
+            } else { 
+                mainBtn.textContent = '一時停止'; 
+                mainBtn.className = 'btn btn-stop'; 
+                expectedEndTime = Date.now() + (timeLeft * 1000);
+                startSilentAudio();
+            } 
+            const currentTask = queue[currentTask];
+            const label = currentTask ? getTaskLabel(currentTask.type) : '一時停止';
+            const m = Math.floor(timeLeft / 60), s = timeLeft % 60;
+            updateNotificationCenter(label, `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+            return; 
+        }
+        
+        const rawTimeline = serializeContainer(document.getElementById('timeline')); queue = flattenTimeline(rawTimeline);
+        if (queue.length === 0) { showToast('有効なタスクがありません。秒数を設定してください。'); return; }
+        
+        isInfiniteMode = queue.some(item => item.blockType === 'infinite_marker');
+        if (isInfiniteMode && queue.length > 1) {
+            let processedQueue = [];
+            for (let i = 0; i < queue.length; i++) {
+                if (queue[i].blockType === 'infinite_marker') {
+                    processedQueue = processedQueue.concat(queue[i].loopTasks);
+                    break; 
+                } else { processedQueue.push(queue[i]); }
+            }
+            queue = processedQueue;
+        } else if (isInfiniteMode && queue.length === 1) { queue = queue[0].loopTasks; }
+
+        currentIdx = 0; isRunning = true; isPaused = false;
+        document.getElementById('timeline-area').style.display = 'none';
+        document.getElementById('sub-btns').style.display = 'flex';
+        document.getElementById('stage-bg').classList.add('fullscreen');
+        
+        updateClock();
+        clockIntervalId = setInterval(updateClock, 1000);
+
+        startSilentAudio();
+        startNextTask();
+    }
+
+    function startNextTask() {
+        if (currentIdx >= queue.length) {
+            if (isInfiniteMode) { 
+                currentIdx = 0; 
+            } else { 
+                resetAndExit(); 
+                playBeep(880, 0.8); 
+                sendPushNotification("すべてのスケジュールが完了しました！", "お疲れ様でした。");
+                showToast('すべてのスケジュールが完了しました！'); 
+                return; 
+            }
+        }
+        
+        const currentTask = queue[currentIdx]; 
+        timeLeft = currentTask.totalSec;
+        expectedEndTime = Date.now() + (timeLeft * 1000); 
+
+        const label = getTaskLabel(currentTask.type); 
+        document.getElementById('current-task').textContent = label;
+        
+        const initialMin = Math.floor(timeLeft / 60);
+        const initialSec = timeLeft % 60;
+        sendPushNotification(`次のタスク: ${label}`, `制限時間: ${initialMin}分${initialSec}秒`);
+        
+        updateDisplay();
+        
+        if (document.getElementById('peek-panel').classList.contains('open')) {
+            updatePeekList();
+        }
+        
+        const mainBtn = document.getElementById('main-btn'); mainBtn.textContent = '一時停止'; mainBtn.className = 'btn btn-stop';
+        
+        if (timerId) clearInterval(timerId);
+        
+        timerId = setInterval(() => {
+            if (isPaused) return; 
+            
+            const previousTimeLeft = timeLeft;
+            timeLeft = Math.max(0, Math.ceil((expectedEndTime - Date.now()) / 1000));
+            
+            if (previousTimeLeft !== timeLeft) {
+                if (timeLeft === 4) { playBeep(440, 0.1); } 
+                else if (timeLeft === 3) { playBeep(440, 0.1); } 
+                else if (timeLeft === 2) { playBeep(440, 0.1); } 
+                else if (timeLeft === 1) { playBeep(880, 0.6); } 
+
+                updateDisplay();
+            }
+            
+            if (timeLeft <= 0) { 
+                clearInterval(timerId);
+                currentIdx++; 
+                startNextTask(); 
+            }
+        }, 200); 
+    }
+
+    function updateDisplay() {
+        const m = Math.floor(timeLeft / 60), s = timeLeft % 60;
+        const timeStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        document.getElementById('time-display').textContent = timeStr;
+        const label = queue[currentIdx] ? getTaskLabel(queue[currentIdx].type) : '終了';
+        updateNotificationCenter(label, timeStr);
+    }
+
+    function resetAndExit() {
+        clearInterval(timerId); timerId = null; isRunning = false; isPaused = false;
+        if (clockIntervalId) { clearInterval(clockIntervalId); clockIntervalId = null; }
+        stopSilentAudio();
+        clearNotificationCenter(); 
+        
+        document.getElementById('peek-panel').classList.remove('open');
+        document.getElementById('peek-overlay').classList.remove('show');
+
+        document.getElementById('timeline-area').style.display = 'block';
+        document.getElementById('sub-btns').style.display = 'none';
+        document.getElementById('stage-bg').classList.remove('fullscreen');
+        
+        document.getElementById('current-task').textContent = 'スケジュールを選んでスタート！';
+        document.getElementById('time-display').textContent = '00:00';
+        const mainBtn = document.getElementById('main-btn'); mainBtn.textContent = 'スタート'; mainBtn.className = 'btn btn-start';
+    }
+</script>
+</body>
+</html>
